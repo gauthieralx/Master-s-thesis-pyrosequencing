@@ -1,0 +1,1061 @@
+---
+title: "Pyrosequencing script"
+author: "Gauthier Alexandrescu"
+date: "2023-11-20"
+output: 
+  html_document:
+    code_folding: hide 
+    collapsed: yes 
+    fig_caption: yes 
+    fig_height: 5
+    fig_width: 8
+    highlight: tango
+    number_sections: yes 
+    theme: united
+    toc: yes 
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+::: {style="text-align: justify"}
+
+
+#---- 1° Prepare the working environment ----
+
+```{r Setup}
+knitr::opts_chunk$set(eval= FALSE, echo = FALSE, error = FALSE, warning = FALSE, include = TRUE, results='hide', message = FALSE)
+```
+
+```{r Working directory}
+setwd("/Users/gauthieralexandrescu/Documents/2023-2024/Mémoire/Data analysis/Pyroseq")
+```
+
+
+#---- 2° Install and load the packages ----
+
+```{r Packages}
+install.packages("tidyverse")
+install.packages("ggpubr")
+install.packages("car")
+install.packages("visreg")
+install.packages("readxl")
+install.packages("lme4")
+install.packages("arm")
+install.packages("stats") #for Kruskal-Wallis() and glm()
+install.packages("dunn.test")
+install.packages("knitr")
+install.packages("rmarkdown")
+install.packages("reshape2")
+install.packages("gridExtra")
+
+library(tidyverse)
+library(ggpubr)
+library(car)
+library(visreg)
+library(readxl)
+library(lme4)
+library(arm)
+library(stats)
+library(dunn.test)
+library(knitr)
+library(rmarkdown)
+library(reshape2)
+library(gridExtra)
+```
+
+
+#---- 3° Import the data ----
+
+```{r Import the data}
+data <- read_excel("All results Pyro_cleaned.xlsx")
+str(data)
+```
+
+
+#---- 4° Manipulation of the data ----
+
+```{r Conversions}
+data$Assay= as.factor(data$Assay)
+data$Sample_ID= as.factor(data$Sample_ID)
+data$Mean= as.numeric(data$Mean, na.rm= TRUE)
+data$Meth_1 <- as.numeric(data$Meth_1, na.rm= TRUE)
+data$Meth_2 <- as.numeric(data$Meth_2, na.rm= TRUE)
+data$Meth_3 <- as.numeric(data$Meth_3, na.rm= TRUE)
+data$Meth_4 <- as.numeric(data$Meth_4, na.rm= TRUE)
+data$Meth_5 <- as.numeric(data$Meth_5, na.rm= TRUE)
+data$Meth_6 <- as.numeric(data$Meth_6, na.rm= TRUE)
+data$Meth_7 <- as.numeric(data$Meth_7, na.rm= TRUE)
+data$Meth_8 <- as.numeric(data$Meth_8, na.rm= TRUE)
+data$Meth_9 <- as.numeric(data$Meth_9, na.rm= TRUE)
+data$Meth_10 <- as.numeric(data$Meth_10, na.rm= TRUE)
+data$Meth_11 <- as.numeric(data$Meth_11, na.rm= TRUE)
+data$Meth_12 <- as.numeric(data$Meth_12, na.rm= TRUE)
+data$Meth_13 <- as.numeric(data$Meth_13, na.rm= TRUE)
+```
+
+# Means of the replicates of a developmental stage of an assay
+# One code for regrouping all the means and standard deviations for each assay and ID of sample (regroup the replicates)
+```{r Regrouping by assay and by ID}
+data_new <- data %>% #the next line is applied to data
+  pivot_longer(cols= colnames(data)[c(3:15)], #selecting my columns (meth%)
+              names_to= "Position",
+              values_to= "Perc_met") %>%
+  group_by(Assay, Sample_ID) %>% #regroup Assay and regroup Sample_ID to have one value 
+  filter(Perc_met != "NA") %>% #removing the NA
+summarise(Mean= mean(as.numeric(Perc_met), na.rm= TRUE),
+          SD= sd(as.numeric(Perc_met), na.rm= TRUE))
+```
+/!\ For all assays and sample ID + for some reason, gast comes before ol
+
+# Creating the function stat_graph() which requires at least 3 parameters (which are vectors, for example columns from a dataframe)
+# x= vector from x data; y= vector from y data; cl= vector giving the colors (can be a factor but not necessarily)
+# There are 3 other parameters non-mandatory (only words): xlab= name of the x axis, ylab= name of the y axis, collab= name of the categories for the colors
+```{r stat_graph() function}
+stat_graph <- function(x, y, cl, xlab= "x", ylab= "y", collab= "category"){ #function to create a function; collab= name of the legend
+
+  stat_data <- data.frame(y= y,x= x,cl= cl)
+  stat_data$y <- as.numeric(stat_data$y)
+  stat_data$cl <- factor(stat_data$cl, levels= sort(unique(stat_data$cl))) #attribute a unique color
+  stat_data$x <- factor(stat_data$x, levels= sort(unique(stat_data$x))) #same code, therefore every x value has a unique color
+
+  g <- ggplot(data= stat_data, 
+          aes(x= x, y= y, fill= cl)) + 
+    geom_boxplot() +
+    geom_point(aes(col= cl), position= position_dodge(width= 0.75)) + #this width allows to put the points in the middle of each boxplot; geom_point for the points inside the boxplot; col= cl only applied for the points
+    scale_fill_brewer(palette= "Pastel1", direction= 1) + #change color of boxplot 
+    scale_color_brewer(palette= "Set1", direction= 1) + #change color of point
+    theme_minimal() +
+    labs(x= xlab, y= ylab, fill= collab, col= collab)
+
+  return(g) #allows to return the final graph (not the whole function)
+}
+```
+
+# Plotting a boxplot for each gene
+```{r Sample_ID means}
+# With the raw data
+data$Sample_ID <- factor(data$Sample_ID, levels= c("Egast","Eol","E27", "Tgast", "Tol", "T27")) #might need to do this before launching the following graph to have a correct order of the developmental stages
+
+stat_graph(x= data$Sample_ID,  
+           y= data$Mean,
+           cl= data$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  guides(col= "none",
+         fill= "none")
+```
+Shows the Sample_ID means (EPP and TC regrouped) for all the sequences (not the most interesting)
+
+```{r Assay means}
+# With the raw data
+stat_graph(x= data$Assay,  
+           y= data$Mean,
+           cl= data$Assay, 
+           xlab= "Sequence", 
+           ylab= "Mean methylation (%)") +
+  guides(col= "none", 
+         fill= "none")
+```
+Shows the assay means (EPP and TC regrouped). Interesting results!
+
+Both of these graphs are good to have a global view of the mean methylation, but they mix all the developmental stages
+
+#---- 5° Boxplots representing the mean for all the CpG positions of a given developmental stage in an assay (all replicates conserved) ----
+## First create dataframes for each sequence studied of a gene 
+# DNMT3a_1 
+```{r dfDNMT3a_1}
+dfDNMT3a_1 <- data[1:14,]
+
+# Boxplot DNMT3a_1
+stat_graph(x= dfDNMT3a_1$Sample_ID,  
+           y= dfDNMT3a_1$Mean,
+           cl= dfDNMT3a_1$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_1") +
+  guides(col= "none",
+         fill= "none")
+
+# Do the same but with Y as individual methylation sites (4)
+# Same CpGs studied in the sequence but for different developmental stages
+stat_graph(x= dfDNMT3a_1$Sample_ID,  
+           y= dfDNMT3a_1$Meth_2, #change the meth number to visualize the diverse positions
+           cl= dfDNMT3a_1$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_1 CpG 2") +
+  guides(col= "none",
+         fill= "none")
+
+stat_graph(x= dfDNMT3a_1$Sample_ID,  
+           y= dfDNMT3a_1$Meth_3, #change the meth number to visualize the diverse positions
+           cl= dfDNMT3a_1$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_1 CpG 3") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: slight /= between Egast (77%) and Tgast (83%); methylation around 80, all developmental stages pretty similar
+#Meth_2: pretty similar; methylation around 85, all developmental stages pretty similar
+#Meth_3: pretty similar; methylation around 46 => less methylation!
+#Meth_4: similar for EPP and Tgast (around 71%), but lower for Tol and T27 (around 63%)
+```
+
+#DNMT3a_2 
+```{r dfDNMT3a_2}
+dfDNMT3a_2 <- data[15:20,]
+
+# Boxplot DNMT3a_2
+stat_graph(x= dfDNMT3a_2$Sample_ID,  
+           y= dfDNMT3a_2$Mean,
+           cl= dfDNMT3a_2$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_2") +
+  guides(col= "none",
+         fill= "none")
+
+# Individual methylation sites (11)
+stat_graph(x= dfDNMT3a_2$Sample_ID,  
+           y= dfDNMT3a_2$Meth_2,
+           cl= dfDNMT3a_2$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_2 CpG 3") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: 100% methylation Egast/Eol/Tgast (Tol very close too), E27 (93%) and T27 (90.5%) less methylated, Gast~OL>27 in % methylation
+#Meth_2: slight /= between Egast (91%) and Tgast (95.5%), ols nearly the same, 27s nearly the same too, Egast<Eol, Tgast>Tol, >27 in % methylation
+#Meth_3: pretty similar, Gast~OL>27 in % methylation
+#Meth_4: very similar, Gast>OL>27 in % methylation
+#Meth_5: pretty similar, Gast>OL>27 in % methylation => good demethylation here
+#Meth_6: Egast/Eol/Tgast/Tol very methylated (near 100%), E27/T27 less methylated (around 90%), Gast~OL>27 in % methylation
+#Meth_7: every developmental stage pretty similar, Gast>OL>27 in % methylation
+#Meth_8: less methylated than previous CpGs (around 75%) and pretty similar between developmental stages, Gast>OL>27 in % methylation
+#Meth_9: pretty similar between developmental stages, Gast>OL>27 in % methylation
+#Meth_10: very similar between developmental stages, Gast~OL>27 in % methylation
+#Meth_11: pretty similar between developmental stages, Gast>OL>27 in % methylation
+```
+There is only one replicate here, therefore flat boxplots, and not much to say except that it's methylated
+
+#DNMT3a_3 
+```{r dfDNMT3a_3 interesting}
+dfDNMT3a_3 <- data[21:34,]
+
+# Boxplot DNMT3a_3
+a <- stat_graph(x= dfDNMT3a_3$Sample_ID,  
+           y= dfDNMT3a_3$Mean,
+           cl= dfDNMT3a_3$Sample_ID, 
+           xlab= "Developmental stage", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_3") +
+  guides(col= "none",
+         fill= "none")
+
+# Individual methylation sites (9)
+stat_graph(x= dfDNMT3a_3$Sample_ID,  
+           y= dfDNMT3a_3$Meth_5,
+           cl= dfDNMT3a_3$Sample_ID, 
+           xlab= "Developmental stages", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_3 CpG 1") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: Gast>OL>27, gasts similar and ols similar (good methylation), T27 slightly higher than E27
+#Meth_2: Gast>OL>27, gasts similar and ols similar (good methylation), T27 slightly higher than E27
+#Meth_3: Gast>OL>27, gasts similar and ols similar (good methylation), T27 slightly higher than E27
+#Meth_4: Gast>OL>27, gasts similar and ols similar (good methylation), T27 slightly higher than E27
+#Meth_5: Gast>OL>27, gasts similar and ols similar (good methylation), T27 slightly higher than E27
+#Meth_6: Gast~OL>27, interesting pattern here where EPP is slightly higher than TC for gast & ol, gasts similar and ols similar (good methylation), T27 slightly higher than E27
+#Meth_7: Gast~OL>27, gasts similar and ols similar (good methylation), T27 slightly higher than E27
+#Meth_8: not very comparable because of missing data but from what is visible, it follows the same general pattern as above, ols similar
+#Meth_9: not very comparable because of missing data but from what is visible, all stages are less methylated
+#Demethylation in 27th!
+```
+
+#DNMT3a_4
+```{r dfDNMT3a_4 interesting}
+dfDNMT3a_4 <- data[35:48,]
+
+# Boxplot DNMT3a_4
+stat_graph(x= dfDNMT3a_4$Sample_ID,  
+           y= dfDNMT3a_4$Mean,
+           cl= dfDNMT3a_4$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_4") +
+  guides(col= "none",
+         fill= "none")
+
+# Individual methylation sites (13)
+c <- stat_graph(x= dfDNMT3a_4$Sample_ID,  
+           y= dfDNMT3a_4$Meth_8,
+           cl= dfDNMT3a_4$Sample_ID, 
+           xlab= "Developmental stage", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "DNMT3a_4 CpG 9") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: all developmental stages pretty similar between each other, Gast>OL>27
+#Meth_2: all developmental stages pretty similar between each other, Gast>OL>27
+#Meth_3: all developmental stages pretty similar between each other, Gast>OL>27
+#Meth_4: all developmental stages pretty similar between each other, Gast>OL>27
+#Meth_5: all developmental stages pretty similar between each other, Gast>OL>27 except Tol slightly >Tgast
+#Meth_6: all EPP>TC (slightly), OL>Gast&27
+#Meth_7: all developmental stages pretty similar between each other, Gast>OL>27
+#Meth_8: all developmental stages pretty similar between each other, Gast>OL>27
+#Meth_9: this CpG is very clearly defined by all the replicates (very little variation), interesting here that Egast (85%)>Tgast(64.8% but only one replicate), ols and 27s are very similar between populations and between them
+#Meth_10: not very comparable because of missing data but from what is visible, Gast>OL>27 and similar between populations
+#Meth_11: not very comparable because of missing data but from what is visible, similar between populations, less methylation
+#Meth_12: not very comparable because of missing data but from what is visible, similar between populations and Gast>OL>27
+#Meth_13: nothing comparable
+#very methylated but there appears to be a slight diminution Gast>OL>27
+```
+
+# MeCP2_1
+```{r dfMeCP2_1}
+dfMeCP2_1 <- data[63:75,]
+
+# Boxplot MeCP2_1
+stat_graph(x= dfMeCP2_1$Sample_ID,  
+           y= dfMeCP2_1$Mean,
+           cl= dfMeCP2_1$Sample_ID, 
+           xlab= "Developmental stages", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "MeCP2_1") +
+  guides(col= "none",
+         fill= "none")
+
+# Individual methylation sites (11)
+stat_graph(x= dfMeCP2_1$Sample_ID,  
+           y= dfMeCP2_1$Meth_11,
+           cl= dfMeCP2_1$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "MeCP2_1") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: very similar between populations
+#Meth_2: very similar between populations
+#Meth_3: very similar between populations
+#Meth_4: very similar between populations
+#Meth_5: very similar between populations
+#Meth_6: very similar between populations
+#Meth_7: very similar between populations
+#Meth_8: very similar between populations
+#Meth_9: very similar between populations
+#Meth_10: very similar between populations
+#Meth_11: very similar between populations
+#very lowly methylated, Tol always above other stages
+```
+
+#MeCP2_2_2
+```{r dfMeCP2_2_2}
+dfMeCP2_2_2 <- data[76:80,]
+
+# Boxplot MeCP2_2_2
+stat_graph(x= dfMeCP2_2_2$Sample_ID,  
+           y= dfMeCP2_2_2$Mean,
+           cl= dfMeCP2_2_2$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "MeCP2_2_2") +
+  guides(col= "none",
+         fill= "none")
+
+# Individual methylation sites (8)
+stat_graph(x= dfMeCP2_2_2$Sample_ID,  
+           y= dfMeCP2_2_2$Meth_5,
+           cl= dfMeCP2_2_2$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "MeCP2_2_2") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: all similar
+#Meth_2: all similar
+#Meth_3: all similar
+#Meth_4: all similar
+#Meth_5: slightly higher methylation, all similar
+#Meth_6: all similar
+#Meth_7: all similar
+#Meth_8: all similar
+#very few replicates
+```
+Pyrosequencing of EPP samples didn't work, only Egast, T27 and Tgast were obtained as results
+
+#MeCP2_3
+```{r dfMeCP2_3 interesting}
+dfMeCP2_3 <- data[81:94,]
+
+# Boxplot MeCP2_3
+stat_graph(x= dfMeCP2_3$Sample_ID,  
+           y= dfMeCP2_3$Mean,
+           cl= dfMeCP2_3$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "MeCP2_3") +
+  guides(col= "none",
+         fill= "none")
+
+# Individual methylation sites (8)
+d <- stat_graph(x= dfMeCP2_3$Sample_ID,  
+           y= dfMeCP2_3$Meth_8,
+           cl= dfMeCP2_3$Sample_ID, 
+           xlab= "Developmental stage", 
+           ylab= "Mean methylation (%)") +
+  labs(title= "MeCP2_3 CpG 2") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: all nearly the same (good methylation)
+#Meth_2: impressive the methylation here, all 100% except one value of T27
+#Meth_3: similar between populations
+#Meth_4: similar between populations
+#Meth_5: similar between populations
+#Meth_6: lowly methylated! (around 52%), similar between populations
+#Meth_7: similar between populations
+#Meth_8: little less methylated too, similar between populations
+
+#For plotting two graphs one above another
+grid.arrange(c, d, ncol = 1)
+```
+
+# NIPBL
+```{r dfNIPBLb interesting}
+dfNIPBL <- data[49:62,]
+
+# Boxplot NIPBL
+b <- stat_graph(x= dfNIPBL$Sample_ID,  
+           y= dfNIPBL$Mean,
+           cl= dfNIPBL$Sample_ID, 
+           xlab= "Developmental stage", 
+           ylab=" Mean methylation (%)") +
+  labs(title= "NIPBL") +
+  guides(col= "none",
+         fill= "none")
+
+# Individual methylation sites (11)
+stat_graph(x= dfNIPBL$Sample_ID,  
+           y= dfNIPBL$Meth_10,
+           cl= dfNIPBL$Sample_ID, 
+           xlab= "Sample_ID", 
+           ylab=" Mean methylation (%)") +
+  labs(title= "NIPBL") +
+  guides(col= "none",
+         fill= "none")
+
+#Meth_1: 27(20%)>OL(7%)>Gast(5%) -> methylation increasing! + similar between populations
+#Meth_2: 27(24%)>OL(8%)>Gast(3%) -> methylation increasing! + similar between populations
+#Meth_3: 27>OL>Gast -> methylation increasing! + similar between populations
+#Meth_4: 27>OL>Gast -> methylation increasing! + similar between populations
+#Meth_5: 27>OL>Gast -> methylation increasing! + similar between populations
+#Meth_6: 27>OL>Gast -> methylation increasing! + similar between populations
+#Meth_7: 27>OL>Gast -> methylation increasing! + similar between populations
+#Meth_8: 27>OL>Gast -> methylation increasing! + similar between populations (less methylated as a whole)
+#Meth_9: 27>OL>Gast -> methylation increasing! + similar between populations (less methylated as a whole)
+#Meth_10: Egast~Eol, otherwise follows the same pattern as above
+#Meth_11: methylation increases again, 27>OL>Gast -> methylation increasing! + similar between populations
+#variable methylation (still staying low however) between the developmental stages, very interesting 
+
+grid.arrange(a, b, ncol = 1)
+```
+Interesting differential pattern of methylation here
+
+
+#---- 6° Comparison between EPP and TC populations of the studied genes
+## Graphic (geom_line) comparing the methylation of the studied genes throughout the embryonic development of the mangrove rivulus for both populations
+# Taking data_new from line 142
+
+Firstly, create the dataframes encompassing the developmental stages in an assay from data_new
+Geom_line -> therefore one value (mean) for a developmental stage
+Inspiration from geom_line of Fellous et al. 2018
+```{r DNMT3a_1_new}
+# Both populations in the same graph
+DNMT3a_1_new <- data.frame(
+  x= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"), #ordering from the earliest to the oldest developmental stage -> timeline of development
+  y= c(70.203333, 71.102500, 70.502500, 72.457500, 69.815000, 67.724167)) #careful that gast is before ol in the data but rectified here
+#correct attribution of the means
+DNMT3a_1_new$x <- factor(DNMT3a_1_new$x, levels= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"))
+
+#Global view
+ggplot(DNMT3a_1_new, aes(x= x, y= y, group= 1)) + #group= 1 to have one continuous line
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_1")
+
+# Individual population
+DNMT3a_1_EPP <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(70.203333, 71.102500, 70.502500),
+  sd_D1= c(15.8360758, 15.1429564, 14.8555047)) #high deviation because precise plot scale
+DNMT3a_1_EPP$x <- factor(DNMT3a_1_EPP$x, levels= c("Gast", "OL", "27th"))
+
+DNMT3a_1_TC <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(72.457500, 69.815000, 67.724167),
+  sd_D1= c(18.3370033, 18.1438520, 16.2696329))
+DNMT3a_1_TC$x <- factor(DNMT3a_1_TC$x, levels= c("Gast", "OL", "27th"))
+
+Population_DNMT3a_1 <- data.frame("DNMT3a_1_EPP", "DNMT3a_1_TC")
+
+DNMT3a_1s <- bind_rows(DNMT3a_1_EPP, DNMT3a_1_TC, .id= "Population_DNMT3a_1") #bind together two dataframes by their rows
+
+DNMT3a_1s$Population_DNMT3a_1 <- gsub(1, "EPP", DNMT3a_1s$Population_DNMT3a_1) #gsub() for redefining the name of certain rows
+DNMT3a_1s$Population_DNMT3a_1 <- gsub(2, "TC", DNMT3a_1s$Population_DNMT3a_1)
+
+#defining the SD
+DNMT3a_1s <- DNMT3a_1s %>%
+  mutate(lower= y - sd_D1,
+         upper= y + sd_D1)
+
+ggplot(DNMT3a_1s, aes(x= x, y= y, group= Population_DNMT3a_1, color= Population_DNMT3a_1)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width= 0.2, position= position_dodge(0.001)) + #to add SD but they are very zoomed
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_1") +
+  theme_minimal()
+```
+
+```{r DNMT3a_2_new}
+# Both populations in the same graph
+DNMT3a_2_new <- data.frame(
+  x= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"),
+  y= c(95.362727, 94.222727, 87.800000, 95.087273, 93.472727, 86.316364)) #careful that gast is before ol in the data but rectified here
+DNMT3a_2_new$x <- factor(DNMT3a_2_new$x, levels= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"))
+
+ggplot(DNMT3a_2_new, aes(x= x, y= y, group= 1)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_2")
+
+# Individual population
+DNMT3a_2_EPP <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(95.362727, 94.222727, 87.800000),
+  sd_D2= c(6.5958200, 6.4557356, 5.3487382))
+DNMT3a_2_EPP$x <- factor(DNMT3a_2_EPP$x, levels= c("Gast", "OL", "27th"))
+
+DNMT3a_2_TC <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(95.087273, 93.472727, 86.316364),
+  sd_D2= c(5.6179482, 6.4708177, 5.5913563))
+DNMT3a_2_TC$x <- factor(DNMT3a_2_TC$x, levels= c("Gast", "OL", "27th"))
+
+Population_DNMT3a_2 <- data.frame("DNMT3a_2_EPP", "DNMT3a_2_TC")
+
+DNMT3a_2s <- bind_rows(DNMT3a_2_EPP, DNMT3a_2_TC, .id = "Population_DNMT3a_2")
+
+DNMT3a_2s$Population_DNMT3a_2 <- gsub(1, "EPP", DNMT3a_2s$Population_DNMT3a_2)
+DNMT3a_2s$Population_DNMT3a_2 <- gsub(2, "TC", DNMT3a_2s$Population_DNMT3a_2)
+
+DNMT3a_2s <- DNMT3a_2s %>%
+  mutate(lower= y - sd_D2,
+         upper= y + sd_D2)
+
+ggplot(DNMT3a_2s, aes(x= x, y= y, group= Population_DNMT3a_2, color= Population_DNMT3a_2)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width= 0.2, position= position_dodge(0.001)) +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_2") +
+  theme_minimal()
+```
+
+```{r DNMT3a_3_new}
+# Both populations in the same graph
+DNMT3a_3_new <- data.frame(
+  x= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"),
+  y= c(86.734400, 81.050000, 56.166522, 87.925714, 62.920000, 64.099000)) #careful that gast is before ol in the data
+DNMT3a_3_new$x <- factor(DNMT3a_3_new$x, levels= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"))
+
+ggplot(DNMT3a_3_new, aes(x= x, y= y, group= 1)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_3")
+
+# Individual population
+DNMT3a_3_EPP <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(86.734400, 81.050000, 56.166522),
+  sd_D3= c(7.1939101, 8.8245585, 6.5231341))
+DNMT3a_3_EPP$x <- factor(DNMT3a_3_EPP$x, levels= c("Gast", "OL", "27th"))
+
+DNMT3a_3_TC <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(87.925714, 62.920000, 64.099000),
+  sd_D3= c(7.2222223, 9.3787438, 4.6622898))
+DNMT3a_3_TC$x <- factor(DNMT3a_3_TC$x, levels= c("Gast", "OL", "27th"))
+
+Population_DNMT3a_3 <- data.frame("DNMT3a_3_EPP", "DNMT3a_3_TC")
+
+DNMT3a_3s <- bind_rows(DNMT3a_3_EPP, DNMT3a_3_TC, .id = "Population_DNMT3a_3")
+
+DNMT3a_3s$Population_DNMT3a_3 <- gsub(1, "EPP", DNMT3a_3s$Population_DNMT3a_3)
+DNMT3a_3s$Population_DNMT3a_3 <- gsub(2, "TC", DNMT3a_3s$Population_DNMT3a_3)
+
+DNMT3a_3s <- DNMT3a_3s %>%
+  mutate(lower= y - sd_D3,
+         upper= y + sd_D3)
+
+ggplot(DNMT3a_3s, aes(x= x, y= y, group= Population_DNMT3a_3, color= Population_DNMT3a_3)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width= 0.2, position= position_dodge(0.001)) +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_3") +
+  theme_minimal()
+```
+
+```{r DNMT3a_4_new}
+# Both populations in the same graph
+DNMT3a_4_new <- data.frame(
+  x= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"),
+  y= c(94.218750, 94.779630, 92.763226, 90.935833, 91.819167, 90.292778)) #careful that gast is before ol in the data
+DNMT3a_4_new$x <- factor(DNMT3a_4_new$x, levels= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"))
+
+ggplot(DNMT3a_4_new, aes(x= x, y= y, group= 1)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_4")
+#difference between EPP and TC seems huge but in fact in remains around 91-95
+
+# Individual population
+DNMT3a_4_EPP <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(94.218750, 94.779630, 92.763226),
+  sd_D4= c(6.6527543, 4.5597372, 6.7227516))
+DNMT3a_4_EPP$x <- factor(DNMT3a_4_EPP$x, levels= c("Gast", "OL", "27th"))
+
+DNMT3a_4_TC <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(90.935833, 91.819167, 90.292778),
+  sd_D4= c(12.4294478, 9.0486598, 8.4503632))
+DNMT3a_4_TC$x <- factor(DNMT3a_4_TC$x, levels= c("Gast", "OL", "27th"))
+
+Population_DNMT3a_4 <- data.frame("DNMT3a_4_EPP", "DNMT3a_4_TC")
+
+DNMT3a_4s <- bind_rows(DNMT3a_4_EPP, DNMT3a_4_TC, .id = "Population_DNMT3a_4")
+
+DNMT3a_4s$Population_DNMT3a_4 <- gsub(1, "EPP", DNMT3a_4s$Population_DNMT3a_4)
+DNMT3a_4s$Population_DNMT3a_4 <- gsub(2, "TC", DNMT3a_4s$Population_DNMT3a_4)
+
+DNMT3a_4s <- DNMT3a_4s %>%
+  mutate(lower= y - sd_D4,
+         upper= y + sd_D4)
+
+ggplot(DNMT3a_4s, aes(x= x, y= y, group= Population_DNMT3a_4, color= Population_DNMT3a_4)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width=  0.2, position= position_dodge(0.001)) +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for DNMT3a_4") +
+  theme_minimal()
+```
+
+```{r MeCP2_1_new}
+# Both populations in the same graph
+MeCP2_1_new <- data.frame(
+  x= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"),
+  y= c(1.540303, 1.245455, 1.476667, 1.366364, 2.440000, 1.440606)) #careful that gast is before ol in the data
+MeCP2_1_new$x <- factor(MeCP2_1_new$x, levels= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"))
+
+ggplot(MeCP2_1_new, aes(x= x, y= y, group= 1)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for MeCP2_1")
+
+# Individual population
+MeCP2_1_EPP <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(1.540303, 1.245455, 1.476667),
+  sd_M1= c(1.1259454, 0.9033732, 0.8871889))
+MeCP2_1_EPP$x <- factor(MeCP2_1_EPP$x, levels= c("Gast", "OL", "27th"))
+
+MeCP2_1_TC <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(1.366364, 2.440000, 1.440606),
+  sd_M1= c(0.8517309, 1.3122805, 0.8396612))
+MeCP2_1_TC$x <- factor(MeCP2_1_TC$x, levels= c("Gast", "OL", "27th"))
+
+Population_MeCP2_1 <- data.frame("MeCP2_1_EPP", "MeCP2_1_TC")
+
+MeCP2_1s <- bind_rows(MeCP2_1_EPP, MeCP2_1_TC, .id = "Population_MeCP2_1")
+
+MeCP2_1s$Population_MeCP2_1 <- gsub(1, "EPP", MeCP2_1s$Population_MeCP2_1)
+MeCP2_1s$Population_MeCP2_1 <- gsub(2, "TC", MeCP2_1s$Population_MeCP2_1)
+
+MeCP2_1s <- MeCP2_1s %>%
+  mutate(lower= y - sd_M1,
+         upper= y + sd_M1)
+
+ggplot(MeCP2_1s, aes(x= x, y= y, group= Population_MeCP2_1, color= Population_MeCP2_1)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width= 0.2, position= position_dodge(0.001)) +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for MeCP2_1") +
+  theme_minimal()
+```
+
+```{r MeCP2_2_2_new}
+# Both populations in the same graph
+MeCP2_2_2new <- data.frame(
+  x= c("Egast","Tgast", "T27"), #Tol didn't work
+  y= c(2.662500, 4.615000, 2.594167)) #careful that gast is before ol in the data
+MeCP2_2_2new$x <- factor(MeCP2_2_2new$x, levels= c("Egast","Tgast", "T27"))
+
+ggplot(MeCP2_2_2new, aes(x= x, y= y, group= 1)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for MeCP2_2_2")
+
+# Individual population
+MeCP2_2_2_EPP <- data.frame(
+  x= c("Gast"),
+  y= c(2.662500),
+  sd_M2= c(1.1149856))
+MeCP2_2_2_EPP$x <- factor(MeCP2_2_2_EPP$x, levels= c("Gast"))
+
+MeCP2_2_2_TC <- data.frame(
+  x= c("Gast", "27th"),
+  y= c(4.615000, 2.594167),
+  sd_M2= c(2.2742094, 1.3585700))
+MeCP2_2_2_TC$x <- factor(MeCP2_2_2_TC$x, levels= c("Gast", "27th"))
+
+Population_MeCP2_2_2 <- data.frame("MeCP2_2_2_EPP", "MeCP2_2_2_TC")
+
+MeCP2_2_2s <- bind_rows(MeCP2_2_2_EPP, MeCP2_2_2_TC, .id = "Population_MeCP2_2_2")
+
+MeCP2_2_2s$Population_MeCP2_2_2 <- gsub(1, "EPP", MeCP2_2_2s$Population_MeCP2_2_2)
+MeCP2_2_2s$Population_MeCP2_2_2 <- gsub(2, "TC", MeCP2_2_2s$Population_MeCP2_2_2)
+
+MeCP2_2_2s <- MeCP2_2_2s %>%
+  mutate(lower= y - sd_M2,
+         upper= y + sd_M2)
+
+ggplot(MeCP2_2_2s, aes(x= x, y= y, group= Population_MeCP2_2_2, color= Population_MeCP2_2_2)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width= 0.2, position= position_dodge(0.001)) +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for MeCP2_2_2") +
+  theme_minimal()
+```
+
+```{r MeCP2_3 new}
+# Both populations in the same graph
+MeCP2_3_new <- data.frame(
+  x= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"),
+  y= c(83.602917, 84.133750, 83.992917, 84.711250, 84.277500, 82.857083)) #careful that gast is before ol in the data
+MeCP2_3_new$x <- factor(MeCP2_3_new$x, levels= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"))
+
+ggplot(MeCP2_3_new, aes(x= x, y= y, group= 1)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for MeCP2_3")
+
+# Individual population
+MeCP2_3_EPP <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(83.602917, 84.133750, 83.992917),
+  sd_M3= c(16.6636440, 14.0633912, 13.9496861))
+MeCP2_3_EPP$x <- factor(MeCP2_3_EPP$x, levels= c("Gast", "OL", "27th"))
+
+MeCP2_3_TC <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(84.711250, 84.277500, 82.857083),
+  sd_M3= c(15.1606007, 14.5431739, 14.4119339))
+MeCP2_3_TC$x <- factor(MeCP2_3_TC$x, levels= c("Gast", "OL", "27th"))
+
+Population_MeCP2_3 <- data.frame("MeCP2_3_EPP", "MeCP2_3_TC")
+
+MeCP2_3s <- bind_rows(MeCP2_3_EPP, MeCP2_3_TC, .id = "Population_MeCP2_3")
+
+MeCP2_3s$Population_MeCP2_3 <- gsub(1, "EPP", MeCP2_3s$Population_MeCP2_3)
+MeCP2_3s$Population_MeCP2_3 <- gsub(2, "TC", MeCP2_3s$Population_MeCP2_3)
+
+MeCP2_3s <- MeCP2_3s %>%
+  mutate(lower= y - sd_M3,
+         upper= y + sd_M3)
+
+ggplot(MeCP2_3s, aes(x= x, y= y, group= Population_MeCP2_3, color= Population_MeCP2_3)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width= 0.2, position= position_dodge(0.001)) +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for MeCP2_3") +
+  theme_minimal()
+```
+
+```{r NIPBL_new}
+# Both populations in the same graph
+NIPBL_new <- data.frame(
+  x= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"),
+  y= c(1.855455, 6.716364, 18.899394, 1.604545, 6.503636, 17.756667)) #careful that gast is before ol in the data
+NIPBL_new$x <- factor(NIPBL_new$x, levels= c("Egast", "Eol", "E27", "Tgast", "Tol", "T27"))
+
+ggplot(NIPBL_new, aes(x= x, y= y, group= 1)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for NIPBL")
+
+# Individual population
+NIPBL_EPP <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(1.855455, 6.716364, 18.899394),
+  sd_N= c(0.8774077, 3.7528071, 8.3800343))
+NIPBL_EPP$x <- factor(NIPBL_EPP$x, levels= c("Gast", "OL", "27th"))
+
+NIPBL_TC <- data.frame(
+  x= c("Gast", "OL", "27th"),
+  y= c(1.604545, 6.503636, 17.756667),
+  sd_N= c(0.4178843, 2.3347860, 7.0496913))
+NIPBL_TC$x <- factor(NIPBL_TC$x, levels= c("Gast", "OL", "27th"))
+
+Population_NIPBL <- data.frame("NIPBL_EPP", "NIPBL_TC")
+
+NIPBLs <- bind_rows(NIPBL_EPP, NIPBL_TC, .id = "Population_NIPBL")
+
+NIPBLs$Population_NIPBL <- gsub(1, "EPP", NIPBLs$Population_NIPBL)
+NIPBLs$Population_NIPBL <- gsub(2, "TC", NIPBLs$Population_NIPBL)
+
+NIPBLs <- NIPBLs %>%
+  mutate(lower= y - sd_N,
+         upper= y + sd_N)
+
+ggplot(NIPBLs, aes(x= x, y= y, group= Population_NIPBL, color= Population_NIPBL)) +
+     geom_line() +
+     geom_point() +
+     #geom_errorbar(aes(ymin= lower, ymax= upper), width= 0.2, position= position_dodge(0.001)) +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for NIPBL") +
+  theme_minimal()
+```
+
+```{r All sequences}
+all_pops <- data.frame("DNMT3a_1_new", "DNMT3a_2_new", "DNMT3a_3_new", "DNMT3a_4_new", "MeCP2_1_new", "MeCP2_2_2new", "MeCP2_3_new", "NIPBL_new")
+all_seq <- bind_rows(DNMT3a_1_new, DNMT3a_2_new, DNMT3a_3_new, DNMT3a_4_new, MeCP2_1_new, MeCP2_2_2new, MeCP2_3_new, NIPBL_new, .id = "all_pops")
+
+regroup <- data.frame(all_pops= c(1:8), 
+                Sequence= c("DNMT3a_1", "DNMT3a_2", "DNMT3a_3", "DNMT3a_4", "MeCP2_1", "MeCP2_2_2", "MeCP2_3", "NIPBL"))
+
+all_seq <- merge(all_seq, regroup, by= "all_pops") #merging the desired columns
+
+ggplot(all_seq, aes(x= x, y= y, group= Sequence, color= Sequence)) +
+     geom_line() +
+     geom_point() +
+     labs(x= "Developmental stage", y= "Mean methylation (%)", title= "Comparison of mean methylation (%) between EPP and TC for all the sequences") +
+  theme_minimal()
+
+#Bisulfite sequencing has a relatively high error rate, samples between 0% and 10% are usually classified as "unmethylated", whereas samples between 90% and 100% are classified as "fully methylated":
+#DNMT3a_1 (promotor) relatively highly methylated
+#DNMT3a_2 (intron) very highly methylated (gast and ol of both populations seem fully methylated)
+#DNMT3a_3 (intron) as a whole highly methylated, big difference between Eol and Tol and between E27 and T27
+#DNMT3a_4 (intron & exon) very highly methylated (seem fully methylated)
+#MeCP2_1 (promotor) very lowly methylated (unmethylated)
+#MeCP2_2_2 (intron) very lowly methylated (unmethylated); (/!\ it's only for TC)
+#MeCP2_3 (exon) is highly methylated
+#NIPBL (promotor) is poorly methylated as a whole: gast of EPP & TC unmethylated; ol of EPP & TC: at the limit of being unmethylated; 27th of EPP & TC: more methylated
+#=> very interesting results!
+
+ind_pops <- data.frame("DNMT3a_1_EPP", "DNMT3a_1_TC", "DNMT3a_2_EPP", "DNMT3a_2_TC", "DNMT3a_3_EPP", "DNMT3a_3_TC",
+                       "DNMT3a_4_EPP", "DNMT3a_4_TC", "MeCP2_1_EPP", "MeCP2_1_TC", "MeCP2_2_2_EPP", "MeCP2_2_2_TC", 
+                       "MeCP2_3_EPP", "MeCP2_3_TC", "NIPBL_EPP", "NIPBL_TC")
+ind_seq <- bind_rows(DNMT3a_1_EPP, DNMT3a_1_TC, DNMT3a_2_EPP, DNMT3a_2_TC, DNMT3a_3_EPP, DNMT3a_3_TC, DNMT3a_4_EPP, DNMT3a_4_TC,
+                     MeCP2_1_EPP, MeCP2_1_TC, MeCP2_2_2_EPP, MeCP2_2_2_TC, MeCP2_3_EPP, MeCP2_3_TC, NIPBL_EPP, NIPBL_TC, .id = "ind_pops")
+
+regroup2 <- data.frame(ind_pops= c(1:16), 
+                Population= c("DNMT3a_1-EPP", "DNMT3a_1-TC", "DNMT3a_2-EPP", "DNMT3a_2-TC", "DNMT3a_3-EPP", "DNMT3a_3-TC", "DNMT3a_4-EPP",
+                             "DNMT3a_4-TC", "MeCP2_1-EPP", "MeCP2_1-TC", "MeCP2_2_2-EPP", "MeCP2_2_2-TC", "MeCP2_3-EPP", "MeCP2_3-TC",    
+                             "NIPBL-EPP", "NIPBL-TC"))
+
+ind_seq <- merge(ind_seq, regroup2, by= "ind_pops")
+
+ind_seq <- cbind(ind_seq, colsplit(ind_seq$Population, "-", c("Sequence", "Pop"))) #cbind(): column bind function; colsplit(): splitting the columns
+
+ggplot(ind_seq, aes(x= x, y= y, group= Population, color= Sequence)) +
+     geom_line(aes(linetype= Pop)) +
+     geom_point(aes(shape= Pop)) +
+     labs(x= "Developmental stage", 
+          y= "Mean methylation (%)", 
+          #title= "Comparison of mean methylation (%) between EPP and TC populations for all the sequences",
+          shape= "Population",
+          linetype= "Population") +
+  theme_minimal()
+```
+The SDs aren't represented here to prevent overlapping of all the sequences' SDs. Thus, the SDs can be visualized above with the sequence independent code
+
+
+#---- 7° Generalized Linear Model (GLM) - Binomial ----
+The models tested here are the following:
+Y~A => prediction of Y based on A (as a function of A)
+Y~A+B => effect of A and of B
+Y~A:B => interaction between A and B
+Y~A*B => all the effects: A, B, and the interaction between A and B
+
+## GLM
+The model template is the following: mod <- glm(formula, family=..., data= data)
+Y proportion (Mean here), therefore family: binomial(link= "logit")
+
+```{r glm gene-specific for EPP}
+DNMT3a_1_E <- data[1:9,] #EPP selected
+DNMT3a_1_E <- transform(DNMT3a_1_E, MeanRatio=Mean/100) #transform the mean to a ratio
+DNMT3a_1_E %>% select_if(~ !any(is.na(.))) #selection if satisfaction of certain conditions
+#this code is essentially removing any variables from DNMT3a_1_E that have missing values
+M1 <- glm(MeanRatio~Sample_ID, family="binomial", data= DNMT3a_1_E)
+summary(M1) #nothing significant
+M1 <- glm(MeanRatio~Sample_ID, family="quasibinomial", data= DNMT3a_1_E) #when surdispersion is inevitable (proportion with surdispersion)
+par(mfrow=c(2,2)) #2 columns and 2 lines
+plot(M1)
+#quasibino good
+par(mfrow=c(1,1)) #reinitialisation
+shapiro.test(resid(M1)) #p-value = 0.4305
+summary(M1) #only intercept significant
+Anova(M1) #0.2954
+factor(DNMT3a_1_E$Sample_ID) #to see the order of my sample id factors (in data and in levels -> therefore it shows how intercept is chosen (= the first one collated so gast))
+
+
+DNMT3a_2_E <- data[15:17,] #not to keep because only one replicate
+DNMT3a_2_E <- transform(DNMT3a_2_E, MeanRatio=Mean/100)
+DNMT3a_2_E %>% select_if(~ !any(is.na(.)))
+M2 <- glm(MeanRatio~Sample_ID, family="binomial", data= DNMT3a_2_E)
+summary(M2) #nothing significant
+M2 <- glm(MeanRatio~Sample_ID, family="quasibinomial", data= DNMT3a_2_E)
+summary(M2) #Na
+
+
+DNMT3a_3_E <- data[21:29,]
+DNMT3a_3_E <- transform(DNMT3a_3_E, MeanRatio=Mean/100)
+DNMT3a_3_E %>% select_if(~ !any(is.na(.)))
+M3 <- glm(MeanRatio~Sample_ID, family="binomial", data= DNMT3a_3_E)
+summary(M3) #nothing
+M3 <- glm(MeanRatio~Sample_ID, family="quasibinomial", data= DNMT3a_3_E) #same p-value if -7 enlevé
+summary(M3) #everything very significant
+plot(M3)
+shapiro.test(resid(M3)) #p-value = 0.4321
+qqPlot(M3$residuals) #more or less and same for both models
+Anova(M3) #p < 2.2e-16 ***
+
+
+DNMT3a_4_E <- data[35:43,]
+DNMT3a_4_E <- transform(DNMT3a_4_E, MeanRatio=Mean/100)
+DNMT3a_4_E %>% select_if(~ !any(is.na(.)))
+M4 <- glm(MeanRatio~Sample_ID, family="binomial", data= DNMT3a_4_E)
+summary(M4) #nothing
+plot(resid(M4)~fitted(M4), xlab="Predicted values", ylab="Normalized residuals")+
+  abline(h=0, lty=2) #more or less
+M4 <- glm(MeanRatio~Sample_ID, family="quasibinomial", data= DNMT3a_4_E)
+summary(M4) #only intercept significant
+shapiro.test(resid(M4)) #p-value = 0.531
+qqPlot(M4$residuals) #more or less and same for both models
+Anova(M4) #p= 0.04712 *
+
+
+MeCP2_1_E <- data[63:70,]
+MeCP2_1_E <- transform(MeCP2_1_E, MeanRatio=Mean/100)
+MeCP2_1_E %>% select_if(~ !any(is.na(.)))
+M5 <- glm(MeanRatio~Sample_ID, family="binomial", data= MeCP2_1_E)
+summary(M5) #nothing
+plot(M5)
+M5 <- glm(MeanRatio~Sample_ID, family="quasibinomial", data= MeCP2_1_E)
+summary(M5) #only intercept significant
+shapiro.test(resid(M5)) #p-value = 0.7122
+qqPlot(M5$residuals) #more or less and same for both models
+Anova(M5) #p= 0.5868
+
+
+#MeCP2_2_2_E not tested because only Egast one time (and even worse if T tested because no ol and only one gast)
+
+
+MeCP2_3_E <- data[81:89,]
+MeCP2_3_E <- transform(MeCP2_3_E, MeanRatio=Mean/100)
+MeCP2_3_E %>% select_if(~ !any(is.na(.)))
+M6 <- glm(MeanRatio~Sample_ID, family="binomial", data= MeCP2_3_E)
+summary(M6) #nothing
+plot(M6)
+M6 <- glm(MeanRatio~Sample_ID, family="quasibinomial", data= MeCP2_3_E)
+summary(M6) #only intercept significant
+shapiro.test(resid(M6)) #p-value = 0.1071
+qqPlot(M6$residuals) #more or less and same for both models
+Anova(M6) #p= 0.8879
+
+NIPBL_E <- data[49:57,]
+NIPBL_E <- transform(NIPBL_E, MeanRatio=Mean/100)
+NIPBL_E %>% select_if(~ !any(is.na(.)))
+M7 <- glm(MeanRatio~Sample_ID, family="binomial", data= NIPBL_E)
+summary(M7) #nothing
+plot(M7)
+M7 <- glm(MeanRatio~Sample_ID, family="quasibinomial", data= NIPBL_E)
+summary(M7) #everything very significant
+shapiro.test(resid(M7)) #p-value = 0.2379
+qqPlot(M7$residuals) #more or less and same for both models
+Anova(M7)
+```
+
+```{r anova or Kruskal-Wallis per gene for EPP}
+# Shapiro test first on the sequence df
+shapiro.test(DNMT3a_1_E$Mean) #p-value = 0.3512 -> normal
+qqPlot(DNMT3a_1_E$Mean) #good
+par(mfrow=c(2,2))
+plot(DNMT3a_1_E$Mean)
+#par(mfrow=c(1,1))
+bartlett.test(DNMT3a_1_E$Mean~DNMT3a_1_E$Sample_ID, data= DNMT3a_1_E) #p-value = 0.7532
+anovaD1 <- aov(Mean~Sample_ID, data= DNMT3a_1_E)
+summary(anovaD1) #p-value= 0.361
+qqPlot(anovaD1$residuals) #good
+plot(anovaD1)
+
+
+#shapiro.test(DNMT3a_2_E$Mean) #p-value = 0.2679 -> normal
+#anova <- aov(Mean~Sample_ID, data= DNMT3a_2_E)
+#summary(anova) #nope because only one replicate
+
+
+shapiro.test(DNMT3a_3_E$Mean) #p-value = 0.007099 -> non-normal
+qqPlot(DNMT3a_3_E$Mean) #no
+plot(DNMT3a_3_E$Mean)
+leveneTest(Mean~Sample_ID, data= DNMT3a_3_E) #p-value= 0.4362
+kruskal.test(Mean~Sample_ID, data= DNMT3a_3_E) #p-value= 0.02732 -> significant
+dunn.test(DNMT3a_3_E$Mean, DNMT3a_3_E$Sample_ID, method= "bonferroni")
+#p <= 0.025 -> Egast & E27 (p= 0.0109*)
+
+
+shapiro.test(DNMT3a_4_E$Mean) #p-value = 0.2523 -> normal
+qqPlot(DNMT3a_4_E$Mean) #more or less but ok
+plot(DNMT3a_4_E$Mean)
+bartlett.test(DNMT3a_4_E$Mean~DNMT3a_4_E$Sample_ID, data= DNMT3a_4_E) #p-value = 0.2635
+anovaD4 <- aov(Mean~Sample_ID, data= DNMT3a_4_E)
+summary(anovaD4) #p-value= 0.13
+qqPlot(anovaD4$residuals) #more or less
+plot(anovaD4)
+
+
+shapiro.test(MeCP2_1_E$Mean) #p-value = 0.07878 -> normal
+qqPlot(MeCP2_1_E$Mean) #more or less, limit
+plot(MeCP2_1_E$Mean)
+bartlett.test(MeCP2_1_E$Mean~MeCP2_1_E$Sample_ID, data= MeCP2_1_E) #p-value = 0.3197
+anovaM1 <- aov(Mean~Sample_ID, data= MeCP2_1_E)
+summary(anovaM1) #p-value= 0.638
+#qqPlot(anovaM1$residuals) #more or less
+
+
+shapiro.test(MeCP2_3_E$Mean) #p-value = 0.02993 -> non-normal
+qqPlot(MeCP2_3_E$Mean) #middle
+plot(MeCP2_3_E$Mean)
+leveneTest(Mean~Sample_ID, data= MeCP2_3_E) #p-value= 0.1708
+kruskal.test(Mean~Sample_ID, data= MeCP2_3_E) #p-value= 0.8371
+
+
+shapiro.test(NIPBL_E$Mean) #p-value = 0.05522 -> normal
+qqPlot(NIPBL_E$Mean) #limit to normality
+plot(NIPBL_E$Mean)
+bartlett.test(NIPBL_E$Mean~NIPBL_E$Sample_ID, data= NIPBL_E) #p-value = 0.01781
+anovaN <- aov(Mean~Sample_ID, data= NIPBL_E)
+#qqPlot(anovaN$residuals) #limit to normality
+summary(anovaN) #p-value= 0.00013 ***
+TukeyHSD(anovaN) #p-adj values: 0.0001208 Egast-E27, 0.0007870 Eol-E27
+```
+
+:::
